@@ -133,6 +133,7 @@ class Prog::DownloadBootImage < Prog::Base
     ["kubernetes-v1_33", "x64", "20250506.1.0"] => "35ca03c19385227117fa6579f58c73a362970359fa9486024ca393b134a698d4",
     ["kubernetes-v1_34", "x64", "20250828.1.0"] => "3a29122a3836109df78778df24899f864bc8beff7d92d86dc4ab8b99314f520c",
     ["gpu-ubuntu-noble", "x64", "20251017.1.0"] => "b87829c6bc71718ff0dffe2948d2586ca7ff95a02dbb03f68d18ec8c223b312c",
+    ["kubernetes-v1_35", "x64", "20260402.1.0"] => "611f1ee6ef43aa199713f12f99e6955971626801ec8713e8a43289589ed4a9de",
   }.freeze
   BOOT_IMAGE_SHA256.each_key(&:freeze)
 
