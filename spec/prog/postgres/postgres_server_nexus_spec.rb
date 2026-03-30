@@ -241,7 +241,7 @@ RSpec.describe Prog::Postgres::PostgresServerNexus do
 
     it "mounts data disk if format disk is succeeded and hops to configure_walg_credentials" do
       expect(server).to receive(:storage_device_paths).and_return(["/dev/vdb"])
-      expect(sshable).to receive(:_cmd).with("sudo tune2fs /dev/vdb -r 838848").and_return("Succeeded")
+      expect(sshable).to receive(:_cmd).with("sudo tune2fs /dev/vdb -r 838848 -o acl").and_return("Succeeded")
       expect(sshable).to receive(:_cmd).with("common/bin/daemonizer2 check format_disk").and_return("Succeeded")
       expect(sshable).to receive(:_cmd).with("sudo mkdir -p /dat")
       expect(sshable).to receive(:_cmd).with("sudo common/bin/add_to_fstab /dev/vdb /dat ext4 defaults 0 0")
@@ -255,7 +255,7 @@ RSpec.describe Prog::Postgres::PostgresServerNexus do
       expect(sshable).to receive(:_cmd).with("common/bin/daemonizer2 check format_disk").and_return("Succeeded")
       expect(sshable).to receive(:_cmd).with("sudo mdadm --detail --scan | sudo tee -a /etc/mdadm/mdadm.conf")
       expect(sshable).to receive(:_cmd).with("sudo update-initramfs -u")
-      expect(sshable).to receive(:_cmd).with("sudo tune2fs /dev/md0 -r 1677696").and_return("Succeeded")
+      expect(sshable).to receive(:_cmd).with("sudo tune2fs /dev/md0 -r 1677696 -o acl").and_return("Succeeded")
       expect(sshable).to receive(:_cmd).with("sudo mkdir -p /dat")
       expect(sshable).to receive(:_cmd).with("sudo common/bin/add_to_fstab /dev/md0 /dat ext4 defaults 0 0")
       expect(sshable).to receive(:_cmd).with("sudo mount /dev/md0 /dat")
@@ -510,7 +510,7 @@ RSpec.describe Prog::Postgres::PostgresServerNexus do
       expect(sshable).to receive(:_cmd).with("sudo systemctl enable --now postgres-metrics.timer")
       expect(sshable).to receive(:_cmd).with("sudo systemctl enable --now pg-collect-metrics.timer")
 
-      expect { nx.configure_metrics }.to hop("setup_hugepages")
+      expect { nx.configure_metrics }.to hop("configure_logs")
     end
 
     it "configures prometheus and metrics during initial provisioning and hops to setup_cloudwatch if timeline is AWS" do
@@ -549,7 +549,7 @@ RSpec.describe Prog::Postgres::PostgresServerNexus do
       expect(sshable).to receive(:_cmd).with("sudo systemctl enable --now pg-collect-metrics.timer")
 
       nx.postgres_server.resource.project.set_ff_aws_cloudwatch_logs(true)
-      expect { nx.configure_metrics }.to hop("setup_cloudwatch")
+      expect { nx.configure_metrics }.to hop("configure_logs")
     end
 
     it "configures prometheus and metrics and hops to wait at times other than initial provisioning" do
@@ -647,6 +647,49 @@ RSpec.describe Prog::Postgres::PostgresServerNexus do
       expect(standby_sshable).to receive(:_cmd).with("sudo systemctl daemon-reload")
 
       expect { standby_nx.configure_metrics }.to hop("wait")
+    end
+  end
+
+  describe "#configure_logs" do
+    let(:logs_config) { {instance: "pg123", server_role: "primary", log_dir: "/dat/17/data/pg_log", log_destinations: []} }
+
+    before do
+      allow(nx.postgres_server).to receive(:logs_config).and_return(logs_config)
+    end
+
+    it "runs configure-logs when NotStarted" do
+      expect(sshable).to receive(:d_check).with("configure_logs").and_return("NotStarted")
+      expect(sshable).to receive(:d_run).with("configure_logs", "/home/ubi/postgres/bin/configure-logs", stdin: logs_config.to_json)
+      expect { nx.configure_logs }.to nap(5)
+    end
+
+    it "naps while InProgress" do
+      expect(sshable).to receive(:d_check).with("configure_logs").and_return("InProgress")
+      expect { nx.configure_logs }.to nap(5)
+    end
+
+    it "hops to setup_hugepages after success during initial provisioning" do
+      nx.incr_initial_provisioning
+      expect(sshable).to receive(:d_check).with("configure_logs").and_return("Succeeded")
+      expect(sshable).to receive(:d_clean).with("configure_logs")
+      expect { nx.configure_logs }.to hop("setup_hugepages")
+    end
+
+    it "hops to setup_cloudwatch after success during initial provisioning if timeline is AWS" do
+      nx.incr_initial_provisioning
+      nx.postgres_server.resource.project.set_ff_aws_cloudwatch_logs(true)
+      aws_location = Location.create(name: "us-west-2", display_name: "aws-us-west-2", ui_name: "aws-us-west-2", visible: true, provider: "aws")
+      aws_timeline = create_postgres_timeline(location_id: aws_location.id)
+      server.update(timeline: aws_timeline)
+      expect(sshable).to receive(:d_check).with("configure_logs").and_return("Succeeded")
+      expect(sshable).to receive(:d_clean).with("configure_logs")
+      expect { nx.configure_logs }.to hop("setup_cloudwatch")
+    end
+
+    it "hops to wait after success outside of initial provisioning" do
+      expect(sshable).to receive(:d_check).with("configure_logs").and_return("Succeeded")
+      expect(sshable).to receive(:d_clean).with("configure_logs")
+      expect { nx.configure_logs }.to hop("wait")
     end
   end
 
@@ -1019,6 +1062,11 @@ RSpec.describe Prog::Postgres::PostgresServerNexus do
     it "hops to configure_metrics if configure_metrics is set" do
       nx.incr_configure_metrics
       expect { nx.wait }.to hop("configure_metrics")
+    end
+
+    it "hops to configure_logs if configure_logs is set" do
+      nx.incr_configure_logs
+      expect { nx.wait }.to hop("configure_logs")
     end
 
     it "hops to configure if configure is set" do
