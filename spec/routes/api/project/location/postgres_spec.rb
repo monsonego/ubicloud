@@ -555,7 +555,7 @@ RSpec.describe Clover, "postgres" do
         post "/project/#{project.ubid}/location/#{pg.display_location}/postgres/#{pg.name}/log-destination", {
           name: "graylog",
           host: "logs.example.com",
-          port: "6514"
+          port: "6514",
         }.to_json
 
         expect(last_response.status).to eq(200)
@@ -566,7 +566,7 @@ RSpec.describe Clover, "postgres" do
         post "/project/#{project.ubid}/location/#{pg.display_location}/postgres/#{pg.name}/log-destination", {
           name: "graylog",
           host: "logs.example.com",
-          port: "99999"
+          port: "99999",
         }.to_json
 
         expect(last_response.status).to eq(400)
@@ -1087,7 +1087,7 @@ RSpec.describe Clover, "postgres" do
           postgres_resource_id: pg.id,
           name: "graylog",
           host: "logs.example.com",
-          port: 6514
+          port: 6514,
         )
         delete "/project/#{project.ubid}/location/#{pg.display_location}/postgres/#{pg.name}/log-destination/#{ld.ubid}"
 

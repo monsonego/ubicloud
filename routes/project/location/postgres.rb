@@ -292,6 +292,49 @@ class Clover
         end
       end
 
+      r.on "log-destination" do
+        r.post true do
+          authorize("Postgres:edit", pg)
+
+          name, host = typecast_params.nonempty_str!(["name", "host"])
+          port = typecast_params.pos_int!("port")
+          unless (1..65535).cover?(port)
+            fail CloverError.new(400, "InvalidRequest", "port must be between 1 and 65535")
+          end
+
+          structured_data = typecast_params.Hash("structured_data")
+          if structured_data
+            unless structured_data.values.all? { |v| v.is_a?(Hash) && v.values.all?(String) }
+              fail CloverError.new(400, "InvalidRequest", "structured_data must be a hash of string-to-string hashes")
+            end
+          end
+
+          DB.transaction do
+            ld = PostgresLogDestination.create(postgres_resource_id: pg.id, name:, host:, port:, structured_data:)
+            pg.servers.each(&:incr_configure_logs)
+            audit_log(ld, "create", pg)
+          end
+
+          Serializers::Postgres.serialize(pg, {detailed: true})
+        end
+
+        r.delete :ubid_uuid do |id|
+          authorize("Postgres:edit", pg)
+
+          if (ld = pg.log_destinations_dataset[id:])
+            DB.transaction do
+              ld.destroy
+              pg.servers.each(&:incr_configure_logs)
+              audit_log(ld, "destroy")
+            end
+          else
+            no_audit_log
+          end
+
+          204
+        end
+      end
+
       r.post "read-replica" do
         authorize("Postgres:edit", pg)
         handle_validation_failure("postgres/show") { @page = "read-replica" }
