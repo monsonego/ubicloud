@@ -101,6 +101,26 @@ class Clover
           r.redirect kc
         end
       end
+
+      r.post "upgrade" do
+        authorize("KubernetesCluster:edit", kc)
+        upgrade_candidate = kc.available_upgrade_version
+        DB.transaction do
+          if upgrade_candidate
+            kc.update(version: upgrade_candidate)
+            kc.incr_upgrade
+            kc.nodepools.first.incr_upgrade
+          end
+          audit_log(kc, "upgrade")
+        end
+
+        if api?
+          Serializers::KubernetesCluster.serialize(kc, {detailed: true})
+        else
+          flash["notice"] = "#{kc.name} will be upgraded to #{upgrade_candidate}"
+          r.redirect kc
+        end
+      end
     end
   end
 end
