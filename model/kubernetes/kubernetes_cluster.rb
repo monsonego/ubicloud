@@ -32,6 +32,10 @@ class KubernetesCluster < Sequel::Model
   def display_state
     label = strand.label
     return "deleting" if destroying_set? || destroy_set?
+    upgrade_labels = %w[upgrade wait_upgrade]
+    nodepool = nodepools.first
+    return "upgrading" if upgrade_labels.include?(label) || upgrade_set? \
+      || upgrade_labels.include?(nodepool.strand.label) || nodepool.upgrade_set?
     return "running" if label == "wait"
 
     "creating"
