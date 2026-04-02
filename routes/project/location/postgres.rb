@@ -137,9 +137,9 @@ class Clover
       end
 
       show_actions = if pg.read_replica?
-        %w[overview connection charts networking config settings]
+        %w[overview connection charts networking logs config settings]
       else
-        %w[overview connection charts networking resize high-availability read-replica backup-restore config upgrade settings]
+        %w[overview connection charts networking resize high-availability read-replica backup-restore logs config upgrade settings]
       end
       r.show_object(pg, actions: show_actions, perm: "Postgres:view", template: "postgres/show")
 
@@ -295,6 +295,7 @@ class Clover
       r.on "log-destination" do
         r.post true do
           authorize("Postgres:edit", pg)
+          handle_validation_failure("postgres/show") { @page = "logs" }
 
           name, host = typecast_params.nonempty_str!(["name", "host"])
           port = typecast_params.pos_int!("port")
@@ -302,7 +303,20 @@ class Clover
             fail CloverError.new(400, "InvalidRequest", "port must be between 1 and 65535")
           end
 
-          structured_data = typecast_params.Hash("structured_data")
+          structured_data = if web?
+            sd_json = typecast_params.str("structured_data_json")&.strip
+            (sd_json.nil? || sd_json.empty?) ? nil : begin
+              parsed = JSON.parse(sd_json)
+              unless parsed.is_a?(Hash)
+                fail Validation::ValidationFailed.new({structured_data: "must be a JSON object"})
+              end
+              parsed
+            rescue JSON::ParserError
+              fail Validation::ValidationFailed.new({structured_data: "must be valid JSON"})
+            end
+          else
+            typecast_params.Hash("structured_data")
+          end
           if structured_data
             unless structured_data.values.all? { |v| v.is_a?(Hash) && v.values.all?(String) }
               fail CloverError.new(400, "InvalidRequest", "structured_data must be a hash of string-to-string hashes")
@@ -315,7 +329,12 @@ class Clover
             audit_log(ld, "create", pg)
           end
 
-          Serializers::Postgres.serialize(pg, {detailed: true})
+          if api?
+            Serializers::Postgres.serialize(pg, {detailed: true})
+          else
+            flash["notice"] = "Log destination is created"
+            r.redirect pg, "/logs"
+          end
         end
 
         r.delete :ubid_uuid do |id|
@@ -331,7 +350,12 @@ class Clover
             no_audit_log
           end
 
-          204
+          if web?
+            flash["notice"] = "PostgreSQL log destination deleted."
+            r.redirect pg, "/logs"
+          else
+            204
+          end
         end
       end
 

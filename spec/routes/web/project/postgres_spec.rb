@@ -893,6 +893,110 @@ RSpec.describe Clover, "postgres" do
       end
     end
 
+    describe "log-destination" do
+      it "can create log destination" do
+        visit "#{project.path}#{pg.path}/logs"
+        fill_in "name", with: "graylog"
+        fill_in "host", with: "logs.example.com"
+        fill_in "port", with: "6514"
+        find(".log-destination-create-button").click
+        expect(page.title).to eq "Ubicloud - pg-with-permission"
+        expect(page).to have_flash_notice "Log destination is created"
+        expect(page).to have_content "logs.example.com"
+        expect(pg.reload.log_destinations.count).to eq(1)
+      end
+
+      it "can create log destination with structured_data" do
+        visit "#{project.path}#{pg.path}/logs"
+        fill_in "name", with: "graylog"
+        fill_in "host", with: "logs.example.com"
+        fill_in "port", with: "6514"
+        fill_in "structured_data_json", with: '{"honeybadger@61642":{"api_key":"secret"}}'
+        find(".log-destination-create-button").click
+        expect(page).to have_flash_notice "Log destination is created"
+        expect(pg.reload.log_destinations.first.structured_data).to eq({"honeybadger@61642" => {"api_key" => "secret"}})
+      end
+
+      it "shows validation error for invalid JSON structured_data" do
+        visit "#{project.path}#{pg.path}/logs"
+        fill_in "name", with: "graylog"
+        fill_in "host", with: "logs.example.com"
+        fill_in "port", with: "6514"
+        fill_in "structured_data_json", with: "not-valid-json"
+        find(".log-destination-create-button").click
+        expect(page).to have_flash_error "Validation failed for following fields: structured_data"
+      end
+
+      it "shows validation error for non-object JSON structured_data" do
+        visit "#{project.path}#{pg.path}/logs"
+        fill_in "name", with: "graylog"
+        fill_in "host", with: "logs.example.com"
+        fill_in "port", with: "6514"
+        fill_in "structured_data_json", with: "[1,2,3]"
+        find(".log-destination-create-button").click
+        expect(page).to have_flash_error "Validation failed for following fields: structured_data"
+      end
+
+      it "treats absent structured_data_json parameter as no structured data" do
+        visit "#{project.path}#{pg.path}/logs"
+        _csrf = all("input[name='_csrf']", visible: false).last.value
+        page.driver.post "#{project.path}#{pg.path}/log-destination",
+          {name: "graylog", host: "logs.example.com", port: "6514", _csrf:}
+        expect(page.driver.response.status).to eq(302)
+        expect(pg.reload.log_destinations.first.structured_data).to be_nil
+      end
+
+      it "treats empty structured_data_json as no structured data" do
+        visit "#{project.path}#{pg.path}/logs"
+        fill_in "name", with: "graylog"
+        fill_in "host", with: "logs.example.com"
+        fill_in "port", with: "6514"
+        fill_in "structured_data_json", with: "   "
+        find(".log-destination-create-button").click
+        expect(page).to have_flash_notice "Log destination is created"
+        expect(pg.reload.log_destinations.first.structured_data).to be_nil
+      end
+
+      it "shows error for structured_data with non-hash values" do
+        visit "#{project.path}#{pg.path}/logs"
+        fill_in "name", with: "graylog"
+        fill_in "host", with: "logs.example.com"
+        fill_in "port", with: "6514"
+        fill_in "structured_data_json", with: '{"sd_id":"not-a-hash"}'
+        find(".log-destination-create-button").click
+        expect(page).to have_flash_error "structured_data must be a hash of string-to-string hashes"
+      end
+
+      it "can delete log destination" do
+        ld = PostgresLogDestination.create(
+          postgres_resource_id: pg.id,
+          name: "graylog",
+          host: "logs.example.com",
+          port: 6514,
+        )
+        visit "#{project.path}#{pg.path}/logs"
+
+        find("#ld-delete-#{ld.ubid} .delete-btn").click
+        expect(page).to have_flash_notice("PostgreSQL log destination deleted.")
+        expect(pg.reload.log_destinations.count).to eq(0)
+      end
+
+      it "cannot delete log destination if it does not exist" do
+        ld = PostgresLogDestination.create(
+          postgres_resource_id: pg.id,
+          name: "graylog",
+          host: "logs.example.com",
+          port: 6514,
+        )
+        visit "#{project.path}#{pg.path}/logs"
+        ld.this.update(id: PostgresLogDestination.generate_uuid)
+
+        find("#ld-delete-#{ld.ubid} .delete-btn").click
+        expect(page).to have_flash_notice("PostgreSQL log destination deleted.")
+        expect(pg.reload.log_destinations.count).to eq(1)
+      end
+    end
+
     describe "ca-certificates" do
       it "sets maintenance window to nil when empty string is passed" do
         pg.update(root_cert_1: "a", root_cert_2: "b")
